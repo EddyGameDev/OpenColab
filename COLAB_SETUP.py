@@ -32,7 +32,12 @@ BACKEND = os.environ.get("BACKEND", "ollama").strip().lower()
 #   [transformers] "Qwen/Qwen2.5-Coder-3B-Instruct", "Qwen/Qwen2.5-Coder-7B-Instruct"
 MODEL_ID = os.environ.get("MODEL_ID", "SparkLLM/Spark-X2.6-4B:q4_k_m")
 
-# Context window: 131072 (128k), 262144 (256k), up to 1048576 (1M context on A100)
+# Context window:
+#   - 32768 (32k) to 131072 (128k): Recommended for 4B-9B models on 15GB T4 or 14B-27B on L4/A100
+#   - Up to 1048576 (1M): ONLY works on models trained/extended for 1M context (e.g. Qwen2.5-1M)
+#     running on a high-VRAM GPU (Colab Pro+ A100 80GB). A 32B model will NOT fit on 16GB VRAM!
+#   - NOTE: Sustained usage & background tunnels require a Paid Google Colab Plan (Colab Pro / Pro+)
+#     to avoid free-tier runtime termination and comply with Google Colab Terms of Service.
 CONTEXT_WINDOW = int(os.environ.get("CONTEXT_WINDOW", "131072"))
 
 # Optional backend tuning parameters
@@ -66,13 +71,49 @@ def resolve_backend(backend: str, model_id: str) -> str:
 
 ACTIVE_BACKEND = resolve_backend(BACKEND, MODEL_ID)
 
-print("=" * 65)
-print("  OPENCOLAB MULTI-BACKEND INITIALIZATION")
-print("=" * 65)
-print(f"Selected Backend : {ACTIVE_BACKEND.upper()} (requested: {BACKEND})")
-print(f"Target Model     : {MODEL_ID}")
-print(f"Context Window   : {CONTEXT_WINDOW} tokens")
-print("=" * 65)
+
+def check_hardware_and_limits(model_id: str, context_window: int):
+    gpu_name = "Unknown / CPU"
+    vram_gb = 0.0
+    try:
+        out = subprocess.check_output(
+            ["nvidia-smi", "--query-gpu=name,memory.total", "--format=csv,noheader,nounits"],
+            text=True
+        ).strip().splitlines()[0]
+        parts = [p.strip() for p in out.split(",")]
+        gpu_name = parts[0]
+        vram_gb = float(parts[1]) / 1024.0
+    except Exception:
+        pass
+
+    print("=" * 65)
+    print("  OPENCOLAB MULTI-BACKEND INITIALIZATION")
+    print("=" * 65)
+    print(f"Detected GPU     : {gpu_name} ({vram_gb:.1f} GB VRAM)" if vram_gb > 0 else "Detected GPU     : None (WARNING: No NVIDIA GPU detected!)")
+    print(f"Selected Backend : {ACTIVE_BACKEND.upper()} (requested: {BACKEND})")
+    print(f"Target Model     : {model_id}")
+    print(f"Context Window   : {context_window} tokens")
+    print("-" * 65)
+    print("  [NOTICE] Google Colab Terms of Service & Hardware Limits:")
+    print("  • Free-tier Colab accounts terminate idle/long-running sessions.")
+    print("    A Paid Google Colab Plan (Colab Pro / Pro+) is required for")
+    print("    sustained usage in compliance with Google Colab ToS.")
+    if context_window > 131072:
+        print(f"  • [WARNING] CONTEXT_WINDOW={context_window} (>128k): Ensure '{model_id}'")
+        print("    natively supports >128k/1M tokens (e.g. YaRN/1M models) and that")
+        print("    you are running on an A100 (40GB/80GB) GPU to avoid OOM crashes.")
+    if 0 < vram_gb <= 16.5:
+        if any(sz in model_id.lower() for sz in ["27b", "30b", "32b", "34b", "70b", "72b"]):
+            print(f"  • [CRITICAL VRAM WARNING] '{model_id}' is too large for {vram_gb:.1f} GB VRAM!")
+            print("    A 27B/32B Q4 model requires ~18-20 GB VRAM just for weights alone.")
+            print("    Use a 4B-9B model on a 15GB T4, or switch to an L4 (24GB) / A100 GPU.")
+        elif context_window > 131072:
+            print(f"  • [CRITICAL VRAM WARNING] {context_window} context on {vram_gb:.1f} GB VRAM")
+            print("    will likely exceed GPU memory! Stick to 32k-128k on a 15GB T4.")
+    print("=" * 65)
+
+
+check_hardware_and_limits(MODEL_ID, CONTEXT_WINDOW)
 
 print("\n1. Installing core proxy dependencies...")
 subprocess.run([sys.executable, "-m", "pip", "install", "-q", "fastapi", "uvicorn", "httpx", "huggingface_hub"], check=True)

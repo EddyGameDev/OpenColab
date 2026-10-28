@@ -1,6 +1,34 @@
 # Bring Your Own Model & Backend Guide (OpenColab + OpenCode)
 
-This guide shows how to run **any open-source model** on Google Colab across **5 inference backends** (`ollama`, `llamacpp`, `vllm`, `sglang`, and `transformers`) and tunnel it directly into **OpenCode v2** with **up to 1M context** and **full agent tool use**.
+This guide shows how to run **open-source LLMs** on Google Colab across **5 inference backends** (`ollama`, `llamacpp`, `vllm`, `sglang`, and `transformers`) and tunnel them into **OpenCode v2** with **configurable context** and **agent tool use**.
+
+---
+
+## ⚠️ Crucial Reality Check: 1M Context, VRAM Math & Google Colab ToS
+
+Before choosing a model and context size, please read these 3 hardware and policy constraints:
+
+### 1. Does Your Model Actually Support 1M Context?
+OpenColab unlocks the software context parameter (`num_ctx` / `--max-model-len`), **but the model weights themselves must be trained for that context length**:
+- **Most standard models (`Qwen 2.5 Coder`, `DeepSeek-R1`, `Llama 3.1`, `Spark-X2.6-4B`) have a hard architectural ceiling of `131,072` (128k) tokens** (or `32,768` for older models).
+- Setting `CONTEXT_WINDOW = 1048576` (1M) on a 128k-native model **will not give it 1M comprehension**—attention quality will collapse past 128k, or strict engines like `vllm`/`sglang` will reject startup with a `max_position_embeddings` error.
+- **Only use `1048576` (1M) with models explicitly built or RoPE/YaRN-scaled for 1M tokens** (such as `Qwen2.5-7B-Instruct-1M` or `Qwen2.5-14B-Instruct-1M`) on an **80 GB A100 GPU**.
+
+### 2. Why a 32B Model + 1M Context Will Crash a 16 GB GPU
+Total GPU VRAM = **`Model Weights + KV Cache Buffer + CUDA Overhead`**:
+- **Model Weights Alone**:
+  - **4B Q4_K_M**: ~2.6 GB VRAM
+  - **7B–9B Q4_K_M**: ~4.8 – 6.0 GB VRAM
+  - **14B Q4_K_M**: ~9.0 GB VRAM
+  - **27B–32B Q4_K_M**: **~17.5 – 20.0 GB VRAM** *(Already exceeds a 15 GB Tesla T4 before allocating a single token of context!)*
+- **KV Cache Buffer (even with 4-bit `q4_0` KV cache enabled)**:
+  - **128k tokens on a 4B–8B model**: ~2.5 – 5.5 GB extra VRAM
+  - **128k tokens on a 32B model**: ~12 – 18 GB extra VRAM (Needs **35+ GB total VRAM** ➔ requires **A100 40GB/80GB**)
+  - **1M (`1,048,576`) tokens on a 7B–14B model**: **~20 – 45 GB extra VRAM** (Requires **Colab Pro+ A100 80GB**)
+
+### 3. Google Colab Terms of Service & Free-Tier Termination
+- **Free Accounts Will Terminate**: Google Colab Free Tier is strictly for short, interactive educational notebooks. Running persistent tunnels (`cloudflared`) and heavy LLM servers on a Free account will trigger automated disconnects and **may violate Google Colab's Terms of Service**.
+- **Paid Plan Required**: To run this setup legitimately in accordance with Google Colab's policies for heavier/sustained workloads, use a **Paid Google Colab Plan (Colab Pro, Colab Pro+, or Pay-As-You-Go Compute Units)** and keep your notebook session interactive.
 
 ---
 
@@ -10,11 +38,11 @@ This guide shows how to run **any open-source model** on Google Colab across **5
 Ollama hosts thousands of pre-quantized models and supports custom Modelfiles with Flash Attention and 4-bit KV cache (`q4_0`).
 
 Popular coding & agent models:
-- **`SparkLLM/Spark-X2.6-4B:q4_k_m`** — Ultra-fast lightweight agent model
+- **`SparkLLM/Spark-X2.6-4B:q4_k_m`** — Ultra-fast lightweight agent model (Fits easily on T4/L4 at 128k)
 - **`qwen2.5-coder:7b`** (or `1.5b`, `3b`, `14b`, `32b`) — Exceptional at code generation & editing
 - **`deepseek-r1:8b`** (or `1.5b`, `7b`, `14b`, `32b`) — Deep reasoning and chain-of-thought
 - **`llama3.1:8b`** — Strong general purpose and agent tool use
-- **`mistral:7b`** or **`codestral:22b`** (on L4/A100 runtime)
+- **`mistral:7b`** or **`codestral:22b`** (22B requires L4 24GB or A100)
 
 ```python
 BACKEND = "ollama"
@@ -91,15 +119,16 @@ CONTEXT_WINDOW = 32768
 
 ---
 
-## Recommended Context Windows by Model & GPU
+## Realistic Context Windows by Model & GPU VRAM
 
-| Model / Engine | Native Context | Free T4 (15 GB) | Colab Pro A100 (40/80 GB) |
-|----------------|----------------|-----------------|---------------------------|
-| **Spark-X2.6-4B (`ollama` / `llamacpp`)** | 128k | `131072` (128k) | `131072` (128k) |
-| **Qwen 3.6 9B / Qwen 2.5 Coder 7B** | 128k (up to 1M) | `131072` (128k) | **`1048576` (Up to 1M)** |
-| **Qwen 3.8 27B / Qwen 2.5 Coder 32B** | 128k – 256k | N/A (Use L4/A100) | `131072` – `262144` |
-| **DeepSeek-R1 (7B/8B/14B)** | 128k | `131072` (128k) | `131072` (128k) |
-| **vLLM / SGLang AWQ Models (7B–14B)** | 32k – 128k | `32768` – `65536` | `131072` (128k) |
+| Model & Parameter Size | Model's Native Max Context | T4 GPU (15 GB VRAM) | L4 GPU (24 GB VRAM) | A100 GPU (40 GB / 80 GB VRAM) |
+|---|---|---|---|---|
+| **Spark-X2.6-4B (Q4)** | 128k (`131072`) | `65536` – `131072` (128k) | `131072` (128k) | `131072` (128k) |
+| **Qwen 2.5 Coder 7B / Qwen 3.6 9B (Q4)** | 128k (`131072`) | `32768` – `131072` (128k) | `131072` (128k) | `131072` (128k) |
+| **Qwen 2.5 7B/14B-Instruct-1M (YaRN 1M)** | **1M (`1048576`)** | `65536` – `131072` *(VRAM limited)* | `131072` – `262144` *(VRAM limited)* | **`524288` – `1048576` (1M on 80GB A100)** |
+| **Qwen 2.5 Coder 14B / DeepSeek-R1 14B (Q4)** | 128k (`131072`) | `16384` – `32768` *(Tight VRAM!)* | `65536` – `131072` (128k) | `131072` (128k) |
+| **Qwen 3.8 27B / Qwen 2.5 Coder 32B (Q4)** | 128k (`131072`) | ❌ **Will NOT fit (OOM)** | `16384` – `32768` *(27B Q4 only)* | `65536` – `131072` (128k) |
+| **DeepSeek-R1 70B / Llama 3.1 70B (Q4)** | 128k (`131072`) | ❌ **Will NOT fit (OOM)** | ❌ **Will NOT fit (OOM)** | `32768` – `131072` *(80GB A100 only)* |
 
 ---
 

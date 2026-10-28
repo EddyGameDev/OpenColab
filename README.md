@@ -1,18 +1,43 @@
 # 🚀 OpenColab
 
-> **Run ANY open-source LLM or custom GGUF on Google Colab (Free or Paid Colab Pro / Pro+) using Ollama, llama.cpp, vLLM, SGLang, or HuggingFace Transformers — connected directly to OpenCode v2 with Up to 1M Context, Agent Tools, and Real-Time SSE Streaming.**
+> **Run open-source LLMs or custom GGUFs on Google Colab using Ollama, llama.cpp, vLLM, SGLang, or HuggingFace Transformers — connected to OpenCode v2 with Configurable Context (32k, 128k, and up to 1M on supported models & hardware), Agent Tools, and Real-Time SSE Streaming.**
+
+---
+
+## ⚠️ Important: Read Before Running (1M Context, VRAM Limits & Google Colab ToS)
+
+Before configuring high context lengths or large models, please understand how **model architecture limits**, **GPU VRAM math**, and **Google Colab's Terms of Service** work in practice:
+
+### 1. "Up to 1M Context" Requires a Model That Actually Supports 1M Tokens
+- OpenColab removes Ollama's default **4,096-token software cap** by baking `num_ctx` (or `--max-model-len`) into the backend configuration.
+- **However, OpenColab cannot magically give 1M context to a model trained only for 32k or 128k.**
+  - Most current open-weight models (`Qwen 2.5 Coder`, `DeepSeek-R1`, `Llama 3.1`, `Spark-X2.6-4B`) have a **native ceiling of 128k (`131,072`) tokens** (or 32k–64k for older models).
+  - Setting `CONTEXT_WINDOW = 1048576` (1M) only works properly on models explicitly built or extended via YaRN/RoPE for 1M context (such as `Qwen2.5-7B-Instruct-1M` or `Qwen2.5-14B-Instruct-1M`). Forcing 1M context on a 128k-native model will result in garbled output beyond 128k or backend validation errors.
+
+### 2. GPU VRAM Math: You Cannot Fit a 32B Model + 1M Context on 16 GB VRAM
+Total GPU memory required is **`Model Weights + KV Cache + Activation Overhead`**:
+- **A 32B model (even quantized to 4-bit Q4_K_M) requires ~19–20 GB of VRAM just for the weights alone.** It **will not fit** on a 15 GB Tesla T4 GPU—even at a tiny 4k context! Attempting to load a 32B model on a 15 GB GPU will either crash with `CUDA Out of Memory` or offload layers to slow CPU RAM (<1 token/sec).
+- **1M Token KV Cache requires massive VRAM**: Even with 4-bit KV cache (`q4_0`) and Flash Attention, a 1,048,576-token context buffer consumes **15 GB to 40+ GB of extra VRAM** depending on model size.
+- **Rule of Thumb**:
+  - **15 GB VRAM (Tesla T4)**: Stick to **4B – 9B models** with **32k – 128k context** (or a 14B Q4 model with **16k – 32k context**).
+  - **24 GB VRAM (Nvidia L4)**: Run **14B – 27B (Q4) models** with **64k – 128k context**.
+  - **40 GB – 80 GB VRAM (Nvidia A100)**: Required for **27B – 70B models** at **128k – 256k context**, or **7B – 14B 1M-native models** at **1,048,576 context**.
+
+### 3. Google Colab Terms of Service (ToS) & Free Tier Disconnections
+- **Paid Plan Strongly Required**: Running background tunnels (`cloudflared`), API servers, or sustained heavy LLM inference on a **Google Colab Free account** will result in **frequent, unannounced runtime terminations** and may violate [Google Colab's Terms of Service](https://research.google.com/colaboratory/faq.html) regarding free-tier resource usage and remote proxy hosting.
+- **Use Paid Compute Units (Colab Pro / Pro+ / Pay-As-You-Go)**: This project is designed for developers utilizing **paid Google Colab compute units (Colab Pro / Pro+)** who want to use their purchased GPU allocation interactively alongside their IDE. Always keep your Colab notebook tab open and abide by Google's Terms of Service.
 
 ---
 
 ## 🌟 Highlights
 
 - **5 Pluggable Inference Backends**: Choose the best engine for your workload via `BACKEND`:
-  - **`ollama`** *(Default)*: Ollama daemon with Flash Attention (`OLLAMA_FLASH_ATTENTION=1`) & 4-bit KV cache (`q4_0`).
+  - **`ollama`** *(Default)*: Ollama daemon with Flash Attention (`OLLAMA_FLASH_ATTENTION=1`), 4-bit KV cache (`q4_0`), and automatic GPU VRAM pre-warming (`OLLAMA_KEEP_ALIVE=-1`).
   - **`llamacpp`**: Native `llama.cpp` CUDA server (`llama-cpp-python[server]`) for direct `.gguf` files, URLs, or HuggingFace GGUF repos.
   - **`vllm`**: High-throughput PagedAttention OpenAI server for Safetensors, AWQ, GPTQ, and FP16/BF16 models with automatic tool-call parsing.
   - **`sglang`**: RadixAttention engine for ultra-fast prefix caching and structured agent loops.
   - **`transformers`**: Zero-install native Hugging Face `transformers` + `torch` streaming engine (with optional 4-bit `bitsandbytes` quantization).
-- **Bypasses the 4096 Context Ceiling**: Configures custom context limits (from 128k up to **1M / 1,048,576 tokens**) across all supported backends.
+- **Bypasses the 4096 Default Cap**: Configures custom context limits (`32k`, `128k`, `256k`, or up to `1M` on supported 1M models + A100 GPUs).
 - **Zero Cloudflare 530 Errors**: Uses a unified FastAPI proxy server (`:8000`) that verifies upstream backend readiness prior to exposing the Cloudflare tunnel.
 - **Universal Reasoning & SSE Normalization**: Preserves EventStream framing (`\n\n`), normalizes both `reasoning` (Ollama) and `reasoning_content` (vLLM / SGLang / llama.cpp) deltas, and strips backend-incompatible payload fields automatically.
 - **Zero Hardcoded Secrets**: Uses cryptographically secure random bearer tokens generated fresh per runtime session.
@@ -32,15 +57,13 @@
 
 ---
 
-## ⚡ Using with a Paid Google AI Plan (Google Colab Pro / Pro+)
+## ⚡ Realistic Hardware & Colab Plan Sizing Guide
 
-This setup scales from **Free Colab** up to **Google Colab Pro / Pro+ / Compute Units**:
-
-| Plan | Recommended GPU | Max Model Size | Max Context Window | Advantages |
-|------|-----------------|----------------|--------------------|------------|
-| **Colab Free** | Tesla T4 (15 GB) | 3B – 9B models (e.g. Spark-X2.6-4B, Qwen 3.6 9B, Qwen 2.5 Coder 7B) | 32k – 128k tokens | Zero cost |
-| **Colab Pro / Pay-As-You-Go** | Nvidia L4 (24 GB) or A100 (40 GB) | 14B – 32B models (e.g. Qwen 3.8 27B, Qwen 2.5 Coder 14B/32B, DeepSeek-R1 14B) | 128k – 256k tokens | Faster generation (~60-110 tokens/sec), background execution |
-| **Colab Pro+** | Nvidia A100 (80 GB) | Up to 70B models (quantized) | **Up to 1M tokens (1,048,576)** | Massive VRAM headroom for extreme context lengths up to 24h continuous runtimes |
+| Colab Plan | GPU & VRAM | Realistic Model Size (Q4) | Realistic Context Window | Notes & ToS |
+|---|---|---|---|---|
+| **Colab Free** *(Testing Only)* | Tesla T4 (**15 GB**) | **3B – 8B** (`Spark-X2.6-4B`, `Qwen 2.5 7B`) | **32k – 128k** tokens | **Frequent disconnects.** Do not use for persistent tunnels; 14B+ or >128k will OOM. |
+| **Colab Pro / Pay-As-You-Go** *(Recommended)* | Nvidia L4 (**24 GB**) or A100 (**40 GB**) | **7B – 27B/32B** (`Qwen 3.8 27B`, `Qwen 2.5 14B/32B`, `DeepSeek-R1 14B`) | **64k – 128k** (on 27B/32B)<br>**128k – 256k** (on 7B–14B) | Paid compute units required for sustained interactive IDE sessions. |
+| **Colab Pro+** *(Heavy Workloads)* | Nvidia A100 (**80 GB**) | **32B – 70B** (at 64k–128k)<br>**7B – 14B 1M-Models** (at 1M) | **Up to 1M (`1,048,576`)** *(Only on 1M-capable models like Qwen2.5-1M)* | High VRAM headroom + priority background execution. |
 
 ---
 
@@ -48,16 +71,16 @@ This setup scales from **Free Colab** up to **Google Colab Pro / Pro+ / Compute 
 
 ### Step 1: Run the Backend on Google Colab
 
-1. Open [Google Colab](https://colab.research.google.com) and create a new notebook.
+1. Open [Google Colab](https://colab.research.google.com) (using a **Paid Colab Pro / Pro+** account for sustained usage) and create a new notebook.
 2. Under **Runtime** -> **Change runtime type**, select a **GPU** (T4, L4, or A100).
 3. Copy the code from [`COLAB_SETUP.py`](COLAB_SETUP.py) into a code cell.
-4. Set your desired backend, model, and context window at the top of the cell (or via environment variables):
+4. Set your desired backend, model, and context window at the top of the cell (matching your GPU's VRAM and the model's native context limit):
    ```python
-   BACKEND = "ollama"               # "ollama", "llamacpp", "vllm", "sglang", "transformers", or "auto"
+   BACKEND = "ollama"                          # "ollama", "llamacpp", "vllm", "sglang", "transformers", or "auto"
    MODEL_ID = "SparkLLM/Spark-X2.6-4B:q4_k_m"  # Model tag, HF repo, or .gguf path
-   CONTEXT_WINDOW = 131072          # 128k, 256k (262144), or up to 1M (1048576)
+   CONTEXT_WINDOW = 131072                     # 32768 (32k), 65536 (64k), or 131072 (128k)
    ```
-5. Run the cell. Once initialized, it will print your session credentials:
+5. Run the cell. Once initialized and pre-warmed in GPU VRAM, it will print your session credentials:
    ```text
    =================================================================
                 OPENCOLAB BACKEND READY (MULTI-BACKEND)

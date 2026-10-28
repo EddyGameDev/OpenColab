@@ -68,19 +68,6 @@ $configTemplate = @"
         }
       }
     }
-  },
-  "mcp": {
-    "servers": {
-      "colab-mcp": {
-        "command": "uv",
-        "args": [
-          "run",
-          "colab-mcp"
-        ],
-        "cwd": "C:/Users/dariu/Downloads/Spark_X2_6_Colab_OpenCode_v2 (1)/colab-mcp",
-        "timeout": 30000
-      }
-    }
   }
 }
 "@
@@ -94,8 +81,8 @@ $globalConfigFile = Join-Path $globalConfigDir "opencode.jsonc"
 Set-Content -Path $globalConfigFile -Value $configTemplate -Encoding utf8
 Write-Host "[OK] Updated global config: $globalConfigFile" -ForegroundColor Green
 
-# 2. Update Project Config (F:\MyProject\opencode.jsonc)
-$projectConfigFile = "F:\MyProject\opencode.jsonc"
+# 2. Update Current Project Config (opencode.jsonc)
+$projectConfigFile = Join-Path (Get-Location).Path "opencode.jsonc"
 Set-Content -Path $projectConfigFile -Value $configTemplate -Encoding utf8
 Write-Host "[OK] Updated project config: $projectConfigFile" -ForegroundColor Green
 

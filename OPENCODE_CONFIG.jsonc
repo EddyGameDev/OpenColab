@@ -37,18 +37,5 @@
         }
       }
     }
-  },
-  "mcp": {
-    "servers": {
-      "colab-mcp": {
-        "command": "uv",
-        "args": [
-          "run",
-          "colab-mcp"
-        ],
-        "cwd": "C:/Users/dariu/Downloads/Spark_X2_6_Colab_OpenCode_v2 (1)/colab-mcp",
-        "timeout": 30000
-      }
-    }
   }
 }

@@ -19,7 +19,7 @@ Model ID          : <YOUR_MODEL_ID>
 ```
 
 ### Step 2: Update the Tunnel URL on Windows
-Open `C:\Users\dariu\.config\opencode\opencode.jsonc` (and optionally `F:\MyProject\opencode.jsonc`) and update the `baseURL` property with the new live URL:
+Open `~/.config/opencode/opencode.jsonc` (and optionally your project's `opencode.jsonc`) and update the `baseURL` property with the new live URL:
 ```json
 "baseURL": "https://<new-subdomain>.trycloudflare.com/v1"
 ```
@@ -40,9 +40,9 @@ Select the model `colab/spark`.
 ## 2. Configuration File Locations
 
 OpenCode checks two configuration locations on Windows:
-1. **Global Configuration**: `C:\Users\dariu\.config\opencode\opencode.jsonc`
+1. **Global Configuration**: `~/.config/opencode/opencode.jsonc` (or `%USERPROFILE%\.config\opencode\opencode.jsonc`)
    * Controls default models, providers, and MCP servers across all folders.
-2. **Project Configuration**: `F:\MyProject\opencode.jsonc`
+2. **Project Configuration**: `opencode.jsonc` in your active project directory
    * Project-specific overrides when opening `F:\MyProject`.
 
 Both have been synchronized with the live configuration.

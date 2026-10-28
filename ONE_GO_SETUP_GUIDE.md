@@ -250,13 +250,13 @@ print("="*60)
 Open **PowerShell** and run this single command (replace with your printed tunnel URL):
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File "F:\MyProject\OpenColab\Apply-Colab-Tunnel.ps1" -TunnelUrl "https://xyz-abc.trycloudflare.com" -ApiKey "<YOUR_GENERATED_API_KEY>"
+powershell -ExecutionPolicy Bypass -File ".\Apply-Colab-Tunnel.ps1" -TunnelUrl "https://xyz-abc.trycloudflare.com" -ApiKey "<YOUR_GENERATED_API_KEY>"
 ```
 
 ### What this command does automatically:
 1. Writes the configuration to **both**:
-   - `C:\Users\dariu\.config\opencode\opencode.jsonc` (global OpenCode config)
-   - `F:\MyProject\opencode.jsonc` (project config)
+   - `~/.config/opencode/opencode.jsonc` (global OpenCode config)
+   - `opencode.jsonc` in your current project folder
 2. Sets **`context: 131072`** and **`output: 131072`** (128k context).
 3. Sets **`tools: true`** and timeout safety margins.
 4. Executes **`opencode reload`** to make changes active instantly.

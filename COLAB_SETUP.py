@@ -23,7 +23,7 @@ import requests
 #   - Or a custom GGUF filename (see BRING_YOUR_OWN_MODEL_GUIDE.md)
 MODEL_ID = os.environ.get("MODEL_ID", "SparkLLM/Spark-X2.6-4B:q4_k_m")
 
-# Context window: 131072 (128k), 65536 (64k), 32768 (32k), or 8192
+# Context window: 131072 (128k), 262144 (256k), up to 1048576 (1M context on A100)
 CONTEXT_WINDOW = int(os.environ.get("CONTEXT_WINDOW", "131072"))
 
 import secrets

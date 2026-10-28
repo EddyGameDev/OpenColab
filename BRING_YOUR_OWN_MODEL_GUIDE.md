@@ -57,19 +57,19 @@ CONTEXT_WINDOW = 65536
 
 ---
 
-## Recommended Context Windows by Model
+## Recommended Context Windows by Model & GPU
 
-| Model | Native Context | Recommended `CONTEXT_WINDOW` in Colab T4 |
-|-------|----------------|------------------------------------------|
-| **Qwen 2.5 Coder (7B/14B)** | 128k | `131072` (or `65536` for lower VRAM usage) |
-| **DeepSeek-R1 (7B/8B/14B)** | 128k | `131072` |
-| **Llama 3.1 (8B)** | 128k | `131072` |
-| **Spark-X2.6-4B** | 128k | `131072` |
-| **Mistral / Codestral** | 32k | `32768` |
-| **Older Llama 3 (8B)** | 8k | `8192` |
+| Model | Native Context | Free T4 (15 GB) | Colab Pro A100 (40/80 GB) |
+|-------|----------------|-----------------|---------------------------|
+| **Qwen 2.5 Coder (7B/14B)** | 128k (up to 1M via YaRN) | `131072` (128k) | **`1048576` (Up to 1M)** |
+| **DeepSeek-R1 (7B/8B/14B)** | 128k | `131072` (128k) | `131072` (128k) |
+| **Llama 3.1 (8B)** | 128k | `131072` (128k) | `131072` (128k) |
+| **Spark-X2.6-4B** | 128k | `131072` (128k) | `131072` (128k) |
+| **Mistral / Codestral** | 32k – 256k | `32768` | `262144` (256k) |
+| **Older Llama 3 (8B)** | 8k | `8192` | `8192` |
 
 > [!TIP]
-> Ollama runs with 4-bit KV Cache Compression (`OLLAMA_KV_CACHE_TYPE="q4_0"`) and Flash Attention (`OLLAMA_FLASH_ATTENTION="1"`). This reduces VRAM consumption for 128k context by over 70%, allowing 128k context even on a free Colab Tesla T4 (15 GB VRAM).
+> Ollama runs with 4-bit KV Cache Compression (`OLLAMA_KV_CACHE_TYPE="q4_0"`) and Flash Attention (`OLLAMA_FLASH_ATTENTION="1"`). This reduces VRAM consumption for large context by over 70%, allowing 128k on a free Colab Tesla T4 (15 GB VRAM) and up to **1M tokens (1,048,576)** on an A100 GPU!
 
 ---
 

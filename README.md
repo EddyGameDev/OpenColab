@@ -1,29 +1,29 @@
 # 🚀 OpenColab
 
-> **Run ANY open-source LLM or custom GGUF on Google Colab (Free or Paid Colab Pro / Pro+) and connect it directly to OpenCode v2 with UP TO 1M Context, Agent Tools, and Real-Time SSE Streaming.**
+> **Run ANY open-source LLM or custom GGUF on Google Colab (Free or Paid Colab Pro / Pro+) and connect it directly to OpenCode v2 with Up to 1M Context, Agent Tools, and Real-Time SSE Streaming.**
 
 ---
 
 ## 🌟 Highlights
 
-- **Bypasses the 4096 Context Ceiling**: Compiles 128k (`131072`) context limits directly into Ollama's model manifest.
+- **Bypasses the 4096 Context Ceiling**: Compiles custom context limits (from 128k up to **1M / 1,048,576 tokens**) directly into Ollama's model manifest.
 - **Zero Cloudflare 530 Errors**: Uses a background FastAPI proxy server that verifies origin health prior to exposing the tunnel.
 - **Universal Model Support**: Plug in any model from the [Ollama Library](https://ollama.com/library) (Qwen 2.5 Coder, DeepSeek-R1, Llama 3.1, Mistral, Starcoder) or load custom Hugging Face GGUFs.
 - **Native SSE Streaming**: Preserves proper EventStream framing (`\n\n`) and maps reasoning deltas for smooth OpenCode real-time streaming.
-- **Memory Efficient**: Leverages 4-bit KV Cache Compression (`q4_0`) and Flash Attention so 128k context runs comfortably even on 15 GB GPUs.
+- **Memory Efficient**: Leverages 4-bit KV Cache Compression (`q4_0`) and Flash Attention so large context buffers run comfortably without OOM.
 - **Zero Hardcoded Secrets**: Uses cryptographically secure random bearer tokens generated fresh per runtime session.
 
 ---
 
 ## ⚡ Using with a Paid Google AI Plan (Google Colab Pro / Pro+)
 
-This setup is fully compatible with both **Free Colab** and **Google Colab Pro / Pro+ / Compute Units**:
+This setup scales from **Free Colab** up to **Google Colab Pro / Pro+ / Compute Units**:
 
-| Plan | Recommended GPU | Max Model Size | Advantages |
-|------|-----------------|----------------|------------|
-| **Colab Free** | Tesla T4 (15 GB) | 3B – 8B models (e.g. Qwen 2.5 Coder 7B, Llama 3.1 8B) | Zero cost |
-| **Colab Pro / Pay-As-You-Go** | Nvidia L4 (24 GB) or A100 (40 GB) | 7B – 32B models (e.g. Qwen 2.5 Coder 14B/32B, DeepSeek-R1 14B) | Faster generation (~60-90 tokens/sec), larger context buffers, background execution |
-| **Colab Pro+** | Nvidia A100 (80 GB) | Up to 70B models (quantized) | Dedicated background runtimes up to 24 hours |
+| Plan | Recommended GPU | Max Model Size | Max Context Window | Advantages |
+|------|-----------------|----------------|--------------------|------------|
+| **Colab Free** | Tesla T4 (15 GB) | 3B – 8B models (e.g. Qwen 2.5 Coder 7B, Llama 3.1 8B) | 32k – 128k tokens | Zero cost |
+| **Colab Pro / Pay-As-You-Go** | Nvidia L4 (24 GB) or A100 (40 GB) | 7B – 32B models (e.g. Qwen 2.5 Coder 14B/32B, DeepSeek-R1 14B) | 128k – 256k tokens | Faster generation (~60-90 tokens/sec), background execution |
+| **Colab Pro+** | Nvidia A100 (80 GB) | Up to 70B models (quantized) | **Up to 1M tokens (1,048,576)** | Massive VRAM headroom for extreme context lengths up to 24h continuous runtimes |
 
 ---
 
@@ -34,10 +34,10 @@ This setup is fully compatible with both **Free Colab** and **Google Colab Pro /
 1. Open [Google Colab](https://colab.research.google.com) and create a new notebook.
 2. Under **Runtime** -> **Change runtime type**, select a **GPU** (T4, L4, or A100).
 3. Copy the code from [`COLAB_SETUP.py`](COLAB_SETUP.py) into a code cell.
-4. Set your desired model at the top of the cell:
+4. Set your desired model and context window at the top of the cell:
    ```python
    MODEL_ID = "qwen2.5-coder:7b"     # Any Ollama model tag or .gguf path
-   CONTEXT_WINDOW = 131072          # 128k (or 65536, 32768)
+   CONTEXT_WINDOW = 131072          # 128k, 256k (262144), or up to 1M (1048576)
    ```
 5. Run the cell. In ~1 minute, it will print your session credentials:
    ```text
@@ -69,7 +69,7 @@ powershell -ExecutionPolicy Bypass -File "Apply-Colab-Tunnel.ps1" `
 
 This single command:
 - Automatically configures OpenCode's global (`~/.config/opencode/opencode.jsonc`) and project settings.
-- Sets 128k context and output limits with tool calling enabled.
+- Sets your custom context and output limits with tool calling enabled.
 - Reloads the OpenCode service instantly.
 
 ---
@@ -104,4 +104,5 @@ Check out [`BRING_YOUR_OWN_MODEL_GUIDE.md`](BRING_YOUR_OWN_MODEL_GUIDE.md) for f
 
 ## 📄 License
 
-MIT License. Free to use and modify for your own workflows.
+This project is licensed under the **PolyForm Noncommercial License 1.0.0 (Source-Available)**. See [`LICENSE`](LICENSE) for details.
+Free for personal use, research, and non-commercial development.

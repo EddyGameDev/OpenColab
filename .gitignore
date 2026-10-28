@@ -1,0 +1,20 @@
+# Logs and traces
+*.log
+stderr.log
+stdout.log
+capture.log
+
+# Local environment and secret configs
+.env
+opencode.jsonc
+*.local
+*.tmp
+
+# Python artifacts
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+
+# System files
+.DS_Store
+Thumbs.db

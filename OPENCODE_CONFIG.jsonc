@@ -1,0 +1,54 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "model": "colab/model",
+  "providers": {
+    "colab": {
+      "name": "Colab Provider (Any Model)",
+      "package": "@opencode/ai/providers/openai-compatible",
+      "settings": {
+        "baseURL": "https://REPLACE-WITH-YOUR-TRYCLOUDFLARE-URL/v1",
+        "apiKey": "REPLACE_WITH_YOUR_BEARER_KEY",
+        "headerTimeout": 120000,
+        "chunkTimeout": 300000
+      },
+      "compatibility": {
+        "requireFinishReason": false
+      },
+      "models": {
+        "model": {
+          "modelID": "REPLACE-WITH-MODEL-ID",
+          "name": "Colab Model",
+          "compatibility": {
+            "requireFinishReason": false
+          },
+          "capabilities": {
+            "tools": true,
+            "input": [
+              "text"
+            ],
+            "output": [
+              "text"
+            ]
+          },
+          "limit": {
+            "context": 131072,
+            "output": 131072
+          }
+        }
+      }
+    }
+  },
+  "mcp": {
+    "servers": {
+      "colab-mcp": {
+        "command": "uv",
+        "args": [
+          "run",
+          "colab-mcp"
+        ],
+        "cwd": "C:/Users/dariu/Downloads/Spark_X2_6_Colab_OpenCode_v2 (1)/colab-mcp",
+        "timeout": 30000
+      }
+    }
+  }
+}

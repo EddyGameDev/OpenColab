@@ -1,6 +1,6 @@
-# 🚀 Colab OpenCode: Any-Model Ollama Bridge
+# 🚀 OpenColab
 
-> Run **ANY** open-source LLM or custom GGUF on Google Colab (Free or Paid Colab Pro / Pro+) and tunnel it directly into **OpenCode v2** with **128k Context Window**, **Tool Calling**, and **Full SSE Streaming**.
+> **Run ANY open-source LLM or custom GGUF on Google Colab (Free or Paid Colab Pro / Pro+) and connect it directly to OpenCode v2 with 128k Context, Agent Tools, and Real-Time SSE Streaming.**
 
 ---
 

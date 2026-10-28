@@ -18,7 +18,7 @@ Popular coding & agent models:
 - **`SparkLLM/Spark-X2.6-4B:q4_k_m`**
 
 #### How to use:
-In [COLAB_SETUP.py](file:///F:/MyProject/Colab_OpenCode_Any_Model/COLAB_SETUP.py), set:
+In [COLAB_SETUP.py](file:///F:/MyProject/OpenColab/COLAB_SETUP.py), set:
 ```python
 MODEL_ID = "qwen2.5-coder:7b"
 CONTEXT_WINDOW = 131072  # or 32768, 65536
@@ -34,7 +34,7 @@ If you have a fine-tuned model or a GGUF file from Hugging Face:
 ```python
 !wget -O /content/my_model.gguf "https://huggingface.co/author/repo/resolve/main/model-q4_k_m.gguf"
 ```
-2. In [COLAB_SETUP.py](file:///F:/MyProject/Colab_OpenCode_Any_Model/COLAB_SETUP.py), set:
+2. In [COLAB_SETUP.py](file:///F:/MyProject/OpenColab/COLAB_SETUP.py), set:
 ```python
 MODEL_ID = "/content/my_model.gguf"
 CONTEXT_WINDOW = 131072
@@ -49,7 +49,7 @@ The script will automatically detect the `.gguf` file, create an Ollama model fr
 from google.colab import drive
 drive.mount('/content/drive')
 ```
-2. In [COLAB_SETUP.py](file:///F:/MyProject/Colab_OpenCode_Any_Model/COLAB_SETUP.py), set:
+2. In [COLAB_SETUP.py](file:///F:/MyProject/OpenColab/COLAB_SETUP.py), set:
 ```python
 MODEL_ID = "/content/drive/MyDrive/models/my_custom_model.gguf"
 CONTEXT_WINDOW = 65536
@@ -78,7 +78,7 @@ CONTEXT_WINDOW = 65536
 Whenever Colab outputs a new tunnel URL, run in PowerShell:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File "F:\MyProject\Colab_OpenCode_Any_Model\Apply-Colab-Tunnel.ps1" -TunnelUrl "https://xyz-abc.trycloudflare.com" -ApiKey "<YOUR_GENERATED_API_KEY>" -ModelId "qwen2.5-coder:7b" -ModelName "Qwen 2.5 Coder 7B" -ContextWindow 131072
+powershell -ExecutionPolicy Bypass -File "F:\MyProject\OpenColab\Apply-Colab-Tunnel.ps1" -TunnelUrl "https://xyz-abc.trycloudflare.com" -ApiKey "<YOUR_GENERATED_API_KEY>" -ModelId "qwen2.5-coder:7b" -ModelName "Qwen 2.5 Coder 7B" -ContextWindow 131072
 ```
 
 This single command updates all OpenCode configs, sets the limits to 128k, and reloads OpenCode automatically!

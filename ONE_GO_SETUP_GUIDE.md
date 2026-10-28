@@ -250,7 +250,7 @@ print("="*60)
 Open **PowerShell** and run this single command (replace with your printed tunnel URL):
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File "F:\MyProject\Colab_OpenCode_Any_Model\Apply-Colab-Tunnel.ps1" -TunnelUrl "https://xyz-abc.trycloudflare.com" -ApiKey "<YOUR_GENERATED_API_KEY>"
+powershell -ExecutionPolicy Bypass -File "F:\MyProject\OpenColab\Apply-Colab-Tunnel.ps1" -TunnelUrl "https://xyz-abc.trycloudflare.com" -ApiKey "<YOUR_GENERATED_API_KEY>"
 ```
 
 ### What this command does automatically:

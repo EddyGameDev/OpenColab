@@ -399,7 +399,7 @@ async def chat_completions(request: Request):
 # ==============================================================================
 print("7. Writing unified FastAPI OpenAI translation & auth proxy...")
 proxy_code = f'''
-import os, json, time, httpx
+import os, json, time, asyncio, httpx
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import StreamingResponse, Response, JSONResponse
 
@@ -444,7 +444,69 @@ async def list_models(request: Request):
         ]
     }}
 
-def translate_sse_chunk(line: str) -> str:
+def sanitize_chat_payload(payload: dict) -> dict:
+    payload["model"] = SERVE_MODEL_ID
+    messages = payload.get("messages")
+    if isinstance(messages, list):
+        for m in messages:
+            if not isinstance(m, dict):
+                continue
+            role = m.get("role")
+            # 1. Normalize tool response content: flatten content block arrays into a string
+            #    so GGUF Jinja templates that concatenate message.content directly never fail.
+            if role == "tool":
+                content = m.get("content")
+                if isinstance(content, list):
+                    parts = []
+                    for part in content:
+                        if isinstance(part, dict):
+                            parts.append(str(part.get("text") or part.get("content") or json.dumps(part)))
+                        else:
+                            parts.append(str(part))
+                    m["content"] = "\\n".join(parts)
+                elif content is None:
+                    m["content"] = ""
+                elif not isinstance(content, str):
+                    m["content"] = json.dumps(content)
+            # 2. Sanitize assistant messages in multi-turn tool histories:
+            #    Keep reasoning inside reasoning_content (never raw content before <tool_call>)
+            #    so reasoning models (e.g. Spark-X2.6, Qwen3, DeepSeek-R1) render valid <think> tags.
+            elif role == "assistant":
+                if m.get("tool_calls"):
+                    content = m.get("content")
+                    if isinstance(content, str) and content.strip():
+                        if not m.get("reasoning_content") and not m.get("reasoning"):
+                            m["reasoning_content"] = content[:4000]
+                        m["content"] = ""
+                    for tc in m.get("tool_calls", []):
+                        if isinstance(tc, dict) and isinstance(tc.get("function"), dict):
+                            args = tc["function"].get("arguments")
+                            if isinstance(args, dict):
+                                tc["function"]["arguments"] = json.dumps(args)
+                else:
+                    content = m.get("content")
+                    if isinstance(content, str) and len(content) > 16000:
+                        m["content"] = content[:4000] + "\\n...[truncated]..."
+                for r_key in ("reasoning_content", "reasoning"):
+                    r_val = m.get(r_key)
+                    if isinstance(r_val, str) and len(r_val) > 4000:
+                        m[r_key] = r_val[-4000:]
+
+    # Default to concise thinking effort during tool-calling turns unless overridden
+    if payload.get("tools") and "reasoning_effort" not in payload:
+        payload["reasoning_effort"] = "low"
+
+    # Only inject Ollama-specific options.num_ctx when using Ollama;
+    # strict OpenAI servers (vLLM, SGLang, llama.cpp) reject unknown top-level options.
+    if ACTIVE_BACKEND == "ollama":
+        options = payload.get("options", {{}})
+        options["num_ctx"] = CONTEXT_WINDOW
+        payload["options"] = options
+    else:
+        payload.pop("options", None)
+    return payload
+
+def translate_sse_chunk(line: str, keep_reasoning_separate: bool = True) -> str:
     if not line.startswith("data: "):
         return line
     payload = line[6:].strip()
@@ -456,32 +518,70 @@ def translate_sse_chunk(line: str) -> str:
         if isinstance(choices, list) and choices:
             delta = choices[0].get("delta")
             if isinstance(delta, dict):
-                # Normalize reasoning tokens across Ollama ('reasoning') and vLLM/SGLang/llama.cpp ('reasoning_content')
                 reasoning = delta.get("reasoning") or delta.get("reasoning_content")
                 content = delta.get("content")
-                if reasoning and not content:
-                    delta["content"] = reasoning
-                delta.pop("reasoning", None)
-                delta.pop("reasoning_content", None)
+                if reasoning:
+                    if keep_reasoning_separate:
+                        delta["reasoning_content"] = reasoning
+                        delta.pop("reasoning", None)
+                        if content == "":
+                            delta.pop("content", None)
+                    else:
+                        if not content:
+                            delta["content"] = reasoning
+                        delta.pop("reasoning", None)
+                        delta.pop("reasoning_content", None)
         return "data: " + json.dumps(obj, ensure_ascii=False)
     except Exception:
         return line
 
-async def sse_stream_generator(upstream_response):
+async def sse_stream_generator(upstream_response, keep_reasoning_separate: bool = True):
+    queue = asyncio.Queue()
+
+    async def pump_upstream():
+        try:
+            async for chunk in upstream_response.aiter_bytes():
+                await queue.put(("chunk", chunk))
+            await queue.put(("eof", b""))
+        except Exception as exc:
+            await queue.put(("error", exc))
+
+    pump_task = asyncio.create_task(pump_upstream())
     buffer = b""
-    async for chunk in upstream_response.aiter_bytes():
-        buffer += chunk
-        while b"\\n" in buffer:
-            line_bytes, buffer = buffer.split(b"\\n", 1)
-            line = line_bytes.decode("utf-8", errors="replace").rstrip("\\r")
-            if not line:
-                yield b"\\n"
+    try:
+        while True:
+            try:
+                msg_type, data = await asyncio.wait_for(queue.get(), timeout=2.0)
+            except asyncio.TimeoutError:
+                # While Ollama buffers large <tool_call> payloads (e.g. writing a full file),
+                # emit a valid no-op OpenAI SSE delta chunk every 2s so Cloudflare, Bun fetch,
+                # and OpenCode's SSE reader never hit idle socket or chunk timeouts.
+                keepalive_chunk = {{
+                    "id": "chatcmpl-keepalive",
+                    "object": "chat.completion.chunk",
+                    "created": int(time.time()),
+                    "model": SERVE_MODEL_ID,
+                    "choices": [{{"index": 0, "delta": {{}}, "finish_reason": None}}]
+                }}
+                yield f"data: {{json.dumps(keepalive_chunk)}}\\n\\n".encode("utf-8")
                 continue
-            yield (translate_sse_chunk(line) + "\\n").encode("utf-8")
-    if buffer:
-        line = buffer.decode("utf-8", errors="replace").rstrip("\\r")
-        if line:
-            yield (translate_sse_chunk(line) + "\\n\\n").encode("utf-8")
+            if msg_type in ("eof", "error"):
+                break
+            buffer += data
+            while b"\\n" in buffer:
+                line_bytes, buffer = buffer.split(b"\\n", 1)
+                line = line_bytes.decode("utf-8", errors="replace").rstrip("\\r")
+                if not line:
+                    yield b"\\n"
+                    continue
+                yield (translate_sse_chunk(line, keep_reasoning_separate) + "\\n").encode("utf-8")
+        if buffer:
+            line = buffer.decode("utf-8", errors="replace").rstrip("\\r")
+            if line:
+                yield (translate_sse_chunk(line, keep_reasoning_separate) + "\\n\\n").encode("utf-8")
+    finally:
+        pump_task.cancel()
+        await upstream_response.aclose()
 
 @app.api_route("/{{path:path}}", methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"])
 async def proxy_all(path: str, request: Request):
@@ -502,18 +602,12 @@ async def proxy_all(path: str, request: Request):
         target += "?" + request.url.query
     body_bytes = await request.body()
     is_stream = False
+    has_tools = False
     if request.method == "POST" and path == "v1/chat/completions":
         try:
             payload = json.loads(body_bytes.decode("utf-8"))
-            payload["model"] = SERVE_MODEL_ID
-            # Only inject Ollama-specific options.num_ctx when using Ollama;
-            # strict OpenAI servers (vLLM, SGLang, llama.cpp) reject unknown top-level options.
-            if ACTIVE_BACKEND == "ollama":
-                options = payload.get("options", {{}})
-                options["num_ctx"] = CONTEXT_WINDOW
-                payload["options"] = options
-            else:
-                payload.pop("options", None)
+            has_tools = bool(payload.get("tools"))
+            payload = sanitize_chat_payload(payload)
             is_stream = bool(payload.get("stream", False))
             body_bytes = json.dumps(payload).encode("utf-8")
         except Exception:
@@ -523,23 +617,27 @@ async def proxy_all(path: str, request: Request):
     upstream = await client.send(req, stream=is_stream)
     if is_stream:
         return StreamingResponse(
-            sse_stream_generator(upstream),
+            sse_stream_generator(upstream, keep_reasoning_separate=True),
             status_code=upstream.status_code,
             headers={{
                 "Content-Type": "text/event-stream; charset=utf-8",
                 "Cache-Control": "no-cache",
-                "Connection": "keep-alive"
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no"
             }}
         )
     else:
         resp_body = await upstream.aread()
+        await upstream.aclose()
         try:
             data = json.loads(resp_body.decode("utf-8"))
             if "choices" in data and len(data["choices"]) > 0:
                 msg = data["choices"][0].get("message", {{}})
                 reasoning = msg.get("reasoning") or msg.get("reasoning_content")
-                if reasoning and not msg.get("content"):
-                    msg["content"] = reasoning
+                if reasoning:
+                    msg["reasoning_content"] = reasoning
+                    if not msg.get("content") and not msg.get("tool_calls"):
+                        msg["content"] = reasoning
             resp_body = json.dumps(data).encode("utf-8")
         except Exception:
             pass

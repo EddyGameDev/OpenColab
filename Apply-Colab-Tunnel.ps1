@@ -31,6 +31,10 @@ Write-Host "Model ID          : $ModelId" -ForegroundColor Gray
 Write-Host "Context Window    : $ContextWindow tokens" -ForegroundColor Gray
 Write-Host "API Key           : $ApiKey" -ForegroundColor Gray
 
+# Calculate sensible max output token limit (up to 32k, at most 1/4 of context window)
+$maxOutput = [Math]::Min(32768, [int][Math]::Floor($ContextWindow / 4))
+if ($maxOutput -lt 4096) { $maxOutput = 4096 }
+
 # Configuration JSON template
 $configTemplate = @"
 {
@@ -43,8 +47,8 @@ $configTemplate = @"
       "settings": {
         "baseURL": "$baseUrl",
         "apiKey": "$ApiKey",
-        "headerTimeout": 120000,
-        "chunkTimeout": 300000
+        "headerTimeout": 300000,
+        "chunkTimeout": 600000
       },
       "compatibility": {
         "requireFinishReason": false
@@ -67,7 +71,7 @@ $configTemplate = @"
           },
           "limit": {
             "context": $ContextWindow,
-            "output": $ContextWindow
+            "output": $maxOutput
           }
         }
       }

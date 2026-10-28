@@ -5,9 +5,12 @@ param(
     [Parameter(Mandatory=$true, HelpMessage="The Bearer API key printed by your Colab session")]
     [string]$ApiKey,
 
-    [string]$ModelId = "qwen2.5-coder:7b",
+    [string]$ModelId = "SparkLLM/Spark-X2.6-4B:q4_k_m",
 
     [string]$ModelName = "Colab Model",
+
+    [ValidateSet("ollama", "llamacpp", "vllm", "sglang", "transformers", "auto")]
+    [string]$Backend = "ollama",
 
     [int]$ContextWindow = 131072
 )
@@ -21,11 +24,12 @@ if ($cleanUrl -match '/v1$') {
 }
 $baseUrl = "$cleanUrl/v1"
 
-Write-Host "Configuring OpenCode for Colab Hosted Model..." -ForegroundColor Cyan
-Write-Host "Base URL       : $baseUrl" -ForegroundColor Gray
-Write-Host "Model ID       : $ModelId" -ForegroundColor Gray
-Write-Host "Context Window : $ContextWindow tokens" -ForegroundColor Gray
-Write-Host "API Key        : $ApiKey" -ForegroundColor Gray
+Write-Host "Configuring OpenCode for OpenColab Multi-Backend Model..." -ForegroundColor Cyan
+Write-Host "Inference Backend : $Backend" -ForegroundColor Gray
+Write-Host "Base URL          : $baseUrl" -ForegroundColor Gray
+Write-Host "Model ID          : $ModelId" -ForegroundColor Gray
+Write-Host "Context Window    : $ContextWindow tokens" -ForegroundColor Gray
+Write-Host "API Key           : $ApiKey" -ForegroundColor Gray
 
 # Configuration JSON template
 $configTemplate = @"
@@ -34,7 +38,7 @@ $configTemplate = @"
   "model": "colab/model",
   "providers": {
     "colab": {
-      "name": "Colab Provider ($ModelName)",
+      "name": "Colab Provider ($Backend - $ModelName)",
       "package": "@opencode/ai/providers/openai-compatible",
       "settings": {
         "baseURL": "$baseUrl",
@@ -48,7 +52,7 @@ $configTemplate = @"
       "models": {
         "model": {
           "modelID": "$ModelId",
-          "name": "$ModelName",
+          "name": "$ModelName ($Backend)",
           "compatibility": {
             "requireFinishReason": false
           },
@@ -99,9 +103,10 @@ try {
 Write-Host "Checking tunnel connectivity..." -ForegroundColor Cyan
 try {
     $models = Invoke-RestMethod -Uri "$baseUrl/models" -Headers @{ Authorization = "Bearer $ApiKey" } -TimeoutSec 15
-    Write-Host "[SUCCESS] Live tunnel connection verified! Available model: $($models.data[0].id)" -ForegroundColor Green
+    $activeBackend = $models.data[0].owned_by
+    Write-Host "[SUCCESS] Live tunnel connection verified! Active Model: $($models.data[0].id) (Backend: $activeBackend)" -ForegroundColor Green
 } catch {
     Write-Host "[WARN] Could not reach $baseUrl/models yet. DNS might still be propagating (takes 5-10s)." -ForegroundColor Yellow
 }
 
-Write-Host "`nAll set! OpenCode model 'colab/model' is ready with $ContextWindow context." -ForegroundColor Cyan
+Write-Host "`nAll set! OpenCode model 'colab/model' ($Backend) is ready with $ContextWindow context." -ForegroundColor Cyan

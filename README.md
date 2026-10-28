@@ -104,5 +104,5 @@ Check out [`BRING_YOUR_OWN_MODEL_GUIDE.md`](BRING_YOUR_OWN_MODEL_GUIDE.md) for f
 
 ## 📄 License
 
-This project is licensed under the **PolyForm Noncommercial License 1.0.0 (Source-Available)**. See [`LICENSE`](LICENSE) for details.
+This project is licensed under the **PolyForm Noncommercial License 1.0.0 (Source-Available)**. See [`LICENSE`](LICENSE) and the [Source-Available Guide](SOURCE_AVAILABLE_GUIDE.md) for details.
 Free for personal use, research, and non-commercial development.

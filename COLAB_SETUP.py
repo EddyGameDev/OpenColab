@@ -132,6 +132,7 @@ if ACTIVE_BACKEND == "ollama":
     ollama_env["OLLAMA_KV_CACHE_TYPE"] = "q4_0"
     ollama_env["OLLAMA_NUM_PARALLEL"] = "1"
     ollama_env["OLLAMA_NUM_CTX"] = str(CONTEXT_WINDOW)
+    ollama_env["OLLAMA_KEEP_ALIVE"] = "-1"
 
     backend_log = open("/content/backend.log", "w")
     subprocess.Popen(["ollama", "serve"], stdout=backend_log, stderr=subprocess.STDOUT, env=ollama_env)
@@ -154,6 +155,17 @@ if ACTIVE_BACKEND == "ollama":
             f.write(modelfile_content)
         subprocess.run(["ollama", "create", MODEL_ID, "-f", "/content/Modelfile"], check=True)
         SERVE_MODEL_ID = MODEL_ID
+
+    print(f"6b. Pre-warming {SERVE_MODEL_ID} into GPU VRAM ({CONTEXT_WINDOW} KV cache)...")
+    try:
+        requests.post(
+            f"{UPSTREAM_BASE}/api/generate",
+            json={"model": SERVE_MODEL_ID, "prompt": "hi", "stream": False, "keep_alive": -1, "options": {"num_ctx": CONTEXT_WINDOW, "num_predict": 1}},
+            timeout=300
+        )
+        print("Model pre-warmed and pinned in GPU VRAM!")
+    except Exception as e:
+        print(f"Warmup note: {e}")
 
 elif ACTIVE_BACKEND == "llamacpp":
     print("3. Preparing llama.cpp CUDA server backend...")

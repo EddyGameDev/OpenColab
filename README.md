@@ -1,6 +1,6 @@
 # 🚀 OpenColab
 
-> **Run ANY open-source LLM or custom GGUF on Google Colab (Free or Paid Colab Pro / Pro+) and connect it directly to OpenCode v2 with 128k Context, Agent Tools, and Real-Time SSE Streaming.**
+> **Run ANY open-source LLM or custom GGUF on Google Colab (Free or Paid Colab Pro / Pro+) and connect it directly to OpenCode v2 with UP TO 1M Context, Agent Tools, and Real-Time SSE Streaming.**
 
 ---
 

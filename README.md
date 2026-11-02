@@ -150,3 +150,14 @@ Check out [`BRING_YOUR_OWN_MODEL_GUIDE.md`](BRING_YOUR_OWN_MODEL_GUIDE.md) for f
 
 This project is licensed under the **PolyForm Noncommercial License 1.0.0 (Source-Available)**. See [`LICENSE`](LICENSE) and the [Source-Available Guide](SOURCE_AVAILABLE_GUIDE.md) for details.
 Free for personal use, research, and non-commercial development.
+
+---
+
+## 🛠️ Troubleshooting
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| Tool calls show up as `<tool_call>...` text, or the agent loop stalls (llamacpp / transformers) | The model emits tool calls as plain text (GLM / Hermes style) and `llama_cpp.server` does not parse them | The proxy now converts them to OpenAI `tool_calls` automatically. Control it with `TOOL_CALL_PARSER = "auto" \| "on" \| "off"` (default `auto`: on for `llamacpp` and `transformers`) |
+| `libcudart.so.12: cannot open shared object file` (llamacpp) | The CUDA 12 llama-cpp-python wheel on a CUDA 13 Colab image | Fixed: the CUDA 12 runtime libs bundled with pip's `nvidia-*` packages are added to `LD_LIBRARY_PATH` for the server |
+| `Model architectures [...] are not supported` (vllm / sglang) | The engine has no implementation of the model architecture (e.g. `Spark2_5ForCausalLM` on vLLM 0.33) | Use `BACKEND = "llamacpp"` with a GGUF or `BACKEND = "transformers"` instead |
+| Setup cell hangs for minutes then fails | The backend crashed at startup | The cell now fails immediately and prints the last lines of `/content/backend.log` |

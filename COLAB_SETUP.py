@@ -614,6 +614,10 @@ def sanitize_chat_payload(payload: dict) -> dict:
             #    Keep reasoning inside reasoning_content (never raw content before <tool_call>)
             #    so reasoning models (e.g. Spark-X2.6, Qwen3, DeepSeek-R1) render valid <think> tags.
             elif role == "assistant":
+                # llama_cpp.server (pydantic) rejects assistant messages whose content is null;
+                # OpenAI clients send content=null alongside tool_calls, so normalize it to "".
+                if m.get("content") is None:
+                    m["content"] = ""
                 if m.get("tool_calls"):
                     content = m.get("content")
                     if isinstance(content, str) and content.strip():

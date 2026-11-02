@@ -678,7 +678,7 @@ def sanitize_chat_payload(payload: dict) -> dict:
             if messages and messages[0].get("role") == "system":
                 cur = messages[0].get("content") or ""
                 if directive not in cur:
-                    messages[0]["content"] = (cur + "\n\n" + directive).strip()
+                    messages[0]["content"] = (cur + "\\n\\n" + directive).strip()
             elif messages:
                 messages.insert(0, {{"role": "system", "content": directive}})
 

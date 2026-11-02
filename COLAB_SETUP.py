@@ -124,8 +124,14 @@ for proc_pattern in ["uvicorn", "ollama", "llama_cpp", "llama-server", "vllm", "
 time.sleep(2)
 
 
-def wait_for_upstream(url: str, timeout_sec: int = 180, headers: dict = None, label: str = "Upstream backend"):
+def wait_for_upstream(url: str, timeout_sec: int = 180, headers: dict = None, label: str = "Upstream backend", proc=None):
     for _ in range(timeout_sec):
+        # Fail fast if the backend process already crashed instead of polling until the timeout.
+        if proc is not None and proc.poll() is not None:
+            raise RuntimeError(
+                f"{label} exited early with code {proc.returncode}. Last lines of /content/backend.log:\n"
+                + _tail_backend_log()
+            )
         try:
             r = requests.get(url, headers=headers or {}, timeout=3)
             if r.ok:
@@ -134,7 +140,17 @@ def wait_for_upstream(url: str, timeout_sec: int = 180, headers: dict = None, la
         except Exception:
             pass
         time.sleep(1)
-    raise RuntimeError(f"{label} failed to start within {timeout_sec}s. Check /content/backend.log")
+    raise RuntimeError(
+        f"{label} failed to start within {timeout_sec}s. Last lines of /content/backend.log:\n" + _tail_backend_log()
+    )
+
+
+def _tail_backend_log(lines: int = 40) -> str:
+    try:
+        with open("/content/backend.log", "r", errors="replace") as fh:
+            return "".join(fh.readlines()[-lines:])
+    except Exception:
+        return "(no backend.log available)"
 
 
 def ensure_gguf_file(model_spec: str) -> str:
@@ -176,8 +192,8 @@ if ACTIVE_BACKEND == "ollama":
     ollama_env["OLLAMA_KEEP_ALIVE"] = "-1"
 
     backend_log = open("/content/backend.log", "w")
-    subprocess.Popen(["ollama", "serve"], stdout=backend_log, stderr=subprocess.STDOUT, env=ollama_env)
-    wait_for_upstream(f"{UPSTREAM_BASE}/api/tags", timeout_sec=45, label="Ollama daemon")
+    backend_proc = subprocess.Popen(["ollama", "serve"], stdout=backend_log, stderr=subprocess.STDOUT, env=ollama_env)
+    wait_for_upstream(f"{UPSTREAM_BASE}/api/tags", timeout_sec=45, label="Ollama daemon", proc=backend_proc)
 
     if os.path.exists(MODEL_ID) or MODEL_ID.lower().endswith(".gguf"):
         gguf_path = ensure_gguf_file(MODEL_ID)
@@ -235,8 +251,8 @@ elif ACTIVE_BACKEND == "llamacpp":
         "--host", "127.0.0.1",
         "--port", str(UPSTREAM_PORT)
     ]
-    subprocess.Popen(cmd, stdout=backend_log, stderr=subprocess.STDOUT)
-    wait_for_upstream(f"{UPSTREAM_BASE}/v1/models", timeout_sec=180, label="llama.cpp server")
+    backend_proc = subprocess.Popen(cmd, stdout=backend_log, stderr=subprocess.STDOUT)
+    wait_for_upstream(f"{UPSTREAM_BASE}/v1/models", timeout_sec=180, label="llama.cpp server", proc=backend_proc)
 
 elif ACTIVE_BACKEND == "vllm":
     print("3. Installing vLLM engine (this may take 1-2 minutes on first run)...")
@@ -257,8 +273,8 @@ elif ACTIVE_BACKEND == "vllm":
         "--host", "127.0.0.1",
         "--port", str(UPSTREAM_PORT)
     ]
-    subprocess.Popen(cmd, stdout=backend_log, stderr=subprocess.STDOUT)
-    wait_for_upstream(f"{UPSTREAM_BASE}/v1/models", timeout_sec=360, label="vLLM OpenAI server")
+    backend_proc = subprocess.Popen(cmd, stdout=backend_log, stderr=subprocess.STDOUT)
+    wait_for_upstream(f"{UPSTREAM_BASE}/v1/models", timeout_sec=360, label="vLLM OpenAI server", proc=backend_proc)
 
 elif ACTIVE_BACKEND == "sglang":
     print("3. Installing SGLang RadixAttention engine...")
@@ -276,8 +292,8 @@ elif ACTIVE_BACKEND == "sglang":
         "--host", "127.0.0.1",
         "--port", str(UPSTREAM_PORT)
     ]
-    subprocess.Popen(cmd, stdout=backend_log, stderr=subprocess.STDOUT)
-    wait_for_upstream(f"{UPSTREAM_BASE}/v1/models", timeout_sec=360, label="SGLang server")
+    backend_proc = subprocess.Popen(cmd, stdout=backend_log, stderr=subprocess.STDOUT)
+    wait_for_upstream(f"{UPSTREAM_BASE}/v1/models", timeout_sec=360, label="SGLang server", proc=backend_proc)
 
 elif ACTIVE_BACKEND == "transformers":
     print("3. Preparing native HuggingFace Transformers + PyTorch backend...")
@@ -385,13 +401,13 @@ async def chat_completions(request: Request):
 
     print(f"4. Launching Transformers server on port {UPSTREAM_PORT}...")
     backend_log = open("/content/backend.log", "w")
-    subprocess.Popen(
+    backend_proc = subprocess.Popen(
         ["uvicorn", "hf_worker:app", "--host", "127.0.0.1", "--port", str(UPSTREAM_PORT)],
         cwd="/content",
         stdout=backend_log,
         stderr=subprocess.STDOUT
     )
-    wait_for_upstream(f"{UPSTREAM_BASE}/v1/models", timeout_sec=300, label="Transformers server")
+    wait_for_upstream(f"{UPSTREAM_BASE}/v1/models", timeout_sec=300, label="Transformers server", proc=backend_proc)
 
 
 # ==============================================================================

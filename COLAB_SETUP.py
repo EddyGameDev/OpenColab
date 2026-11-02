@@ -680,7 +680,7 @@ def sanitize_chat_payload(payload: dict) -> dict:
                 if directive not in cur:
                     messages[0]["content"] = (cur + "\n\n" + directive).strip()
             elif messages:
-                messages.insert(0, {"role": "system", "content": directive})
+                messages.insert(0, {{"role": "system", "content": directive}})
 
     # Only inject Ollama-specific options.num_ctx when using Ollama;
     # strict OpenAI servers (vLLM, SGLang, llama.cpp) reject unknown top-level options.

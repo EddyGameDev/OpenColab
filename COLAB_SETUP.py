@@ -251,7 +251,16 @@ elif ACTIVE_BACKEND == "llamacpp":
         "--host", "127.0.0.1",
         "--port", str(UPSTREAM_PORT)
     ]
-    backend_proc = subprocess.Popen(cmd, stdout=backend_log, stderr=subprocess.STDOUT)
+    # The prebuilt cu124 llama-cpp-python wheel links against libcudart.so.12 / libcublas.so.12, but newer
+    # Colab images ship CUDA 13 system-wide. The CUDA 12 runtime libs are bundled in pip's nvidia-* packages,
+    # so expose them to the server process (otherwise it crashes with "libcudart.so.12: cannot open shared object file").
+    import glob
+    llama_env = os.environ.copy()
+    nvidia_libs = glob.glob(f"{sys.prefix}/lib/python3*/dist-packages/nvidia/*/lib") + \
+        glob.glob("/usr/local/lib/python3*/dist-packages/nvidia/*/lib") + \
+        glob.glob("/usr/local/lib/python3*/site-packages/nvidia/*/lib")
+    llama_env["LD_LIBRARY_PATH"] = ":".join(dict.fromkeys(nvidia_libs)) + ":" + llama_env.get("LD_LIBRARY_PATH", "")
+    backend_proc = subprocess.Popen(cmd, stdout=backend_log, stderr=subprocess.STDOUT, env=llama_env)
     wait_for_upstream(f"{UPSTREAM_BASE}/v1/models", timeout_sec=180, label="llama.cpp server", proc=backend_proc)
 
 elif ACTIVE_BACKEND == "vllm":

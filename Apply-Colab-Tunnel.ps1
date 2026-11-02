@@ -32,7 +32,7 @@ Write-Host "Context Window    : $ContextWindow tokens" -ForegroundColor Gray
 Write-Host "API Key           : $ApiKey" -ForegroundColor Gray
 
 # Calculate sensible max output token limit (up to 32k, at most 1/4 of context window)
-$maxOutput = [Math]::Min(32768, [int][Math]::Floor($ContextWindow / 4))
+$maxOutput = [Math]::Min(4096, [int][Math]::Floor($ContextWindow / 4))
 if ($maxOutput -lt 4096) { $maxOutput = 4096 }
 
 # Configuration JSON template

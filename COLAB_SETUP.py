@@ -663,9 +663,24 @@ def sanitize_chat_payload(payload: dict) -> dict:
                     if isinstance(r_val, str) and len(r_val) > 4000:
                         m[r_key] = r_val[-4000:]
 
+    # Cap output tokens to prevent runaway reasoning loops from blocking the GPU
+    max_t = payload.get("max_tokens")
+    if max_t is None or (isinstance(max_t, int) and max_t > 4096):
+        payload["max_tokens"] = 4096
+
     # Default to concise thinking effort during tool-calling turns unless overridden
-    if payload.get("tools") and "reasoning_effort" not in payload:
-        payload["reasoning_effort"] = "low"
+    if payload.get("tools"):
+        if "reasoning_effort" not in payload:
+            payload["reasoning_effort"] = "low"
+        # Explicitly instruct reasoning models to think concisely and output tool calls quickly
+        directive = "Think concisely. Formulate a 1-2 sentence plan then immediately call the required tool."
+        if isinstance(messages, list):
+            if messages and messages[0].get("role") == "system":
+                cur = messages[0].get("content") or ""
+                if directive not in cur:
+                    messages[0]["content"] = (cur + "\n\n" + directive).strip()
+            elif messages:
+                messages.insert(0, {"role": "system", "content": directive})
 
     # Only inject Ollama-specific options.num_ctx when using Ollama;
     # strict OpenAI servers (vLLM, SGLang, llama.cpp) reject unknown top-level options.

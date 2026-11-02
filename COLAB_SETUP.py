@@ -507,6 +507,26 @@ def normalize_message(msg, tools=None):
         msg["content"] = content if (content or not msg.get("tool_calls")) else None
     return changed
 
+def tool_calls_to_text(tool_calls):
+    # Render OpenAI tool_calls history back into the model's native GLM-style text so chat templates
+    # that require dict arguments (and servers that only accept string arguments) both work.
+    out = ""
+    for tc in tool_calls or []:
+        fn = (tc or {}).get("function") or {}
+        name = fn.get("name") or ""
+        args = fn.get("arguments")
+        if isinstance(args, str):
+            try:
+                args = json.loads(args) if args.strip() else {}
+            except Exception:
+                args = {"input": args}
+        out += "<tool_call>" + name
+        for k, v in (args if isinstance(args, dict) else {}).items():
+            val = v if isinstance(v, str) else json.dumps(v, ensure_ascii=False)
+            out += "<arg_key>" + str(k) + "</arg_key><arg_value>" + val + "</arg_value>"
+        out += "</tool_call>"
+    return out
+
 def postprocess_completion(data, tools=None):
     choices = data.get("choices") if isinstance(data, dict) else None
     if not choices:
@@ -629,6 +649,11 @@ def sanitize_chat_payload(payload: dict) -> dict:
                             args = tc["function"].get("arguments")
                             if isinstance(args, dict):
                                 tc["function"]["arguments"] = json.dumps(args)
+                    if BUFFER_TOOL_RESPONSES:
+                        # llama_cpp.server/transformers templates choke on structured tool_calls history
+                        # (string vs dict arguments). Replay them as native <tool_call> text instead.
+                        m["content"] = (m.get("content") or "") + tool_calls_to_text(m.get("tool_calls"))
+                        m.pop("tool_calls", None)
                 else:
                     content = m.get("content")
                     if isinstance(content, str) and len(content) > 16000:

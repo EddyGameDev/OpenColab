@@ -397,6 +397,122 @@ async def chat_completions(request: Request):
 # ==============================================================================
 # STEP 7–8: UNIFIED FASTAPI OPENAI-COMPATIBLE TRANSLATION PROXY (:8000)
 # ==============================================================================
+# Tool-call parsing for backends whose server doesn't return structured tool_calls.
+#   TOOL_CALL_PARSER = "auto" (on for llamacpp/transformers), "on", or "off"
+TOOL_CALL_PARSER = os.environ.get("TOOL_CALL_PARSER", "auto").strip().lower()
+BUFFER_TOOL_RESPONSES = TOOL_CALL_PARSER == "on" or (
+    TOOL_CALL_PARSER == "auto" and ACTIVE_BACKEND in ("llamacpp", "transformers")
+)
+
+# Text-embedded tool-call parsing.
+# Some GGUF / llama.cpp models (e.g. Spark-X2.6, GLM-style) emit tool calls as plain text:
+#   <tool_call>NAME<arg_key>K</arg_key><arg_value>V</arg_value></tool_call>   (GLM style)
+#   <tool_call>{"name": "NAME", "arguments": {...}}</tool_call>               (Hermes style)
+# and leak "...</think>" into content. llama_cpp.server returns that as raw text, so OpenAI clients
+# (OpenCode) never see structured `tool_calls`. This converts it back to the OpenAI format.
+TOOL_PARSER_CODE = r"""
+import re, uuid
+THINK_CLOSE = "</think>"
+_TC_RE = re.compile(r"<tool_call>(.*?)</tool_call>", re.DOTALL)
+_ARG_RE = re.compile(r"<arg_key>(.*?)</arg_key>\s*<arg_value>(.*?)</arg_value>", re.DOTALL)
+
+def _tool_props(tools):
+    props = {}
+    for t in tools or []:
+        fn = (t or {}).get("function") or {}
+        if fn.get("name"):
+            props[fn["name"]] = (fn.get("parameters") or {}).get("properties") or {}
+    return props
+
+def _parse_tool_call_block(block, props):
+    block = block.strip()
+    if block.startswith("{"):
+        try:
+            obj = json.loads(block)
+            name = obj.get("name")
+            args = obj.get("arguments", obj.get("parameters", {}))
+            if name:
+                return name, (args if isinstance(args, str) else json.dumps(args, ensure_ascii=False))
+        except Exception:
+            pass
+    idx = block.find("<arg_key>")
+    name = (block if idx == -1 else block[:idx]).strip()
+    if not name:
+        return None
+    schema = props.get(name, {})
+    args = {}
+    for k, v in _ARG_RE.findall(block):
+        k, v = k.strip(), v.strip()
+        if (schema.get(k) or {}).get("type") == "string":
+            args[k] = v
+        else:
+            try:
+                args[k] = json.loads(v)
+            except Exception:
+                args[k] = v
+    return name, json.dumps(args, ensure_ascii=False)
+
+def normalize_message(msg, tools=None):
+    # Split leaked </think> into reasoning_content and convert text tool calls to tool_calls.
+    content = msg.get("content")
+    if not isinstance(content, str):
+        return False
+    changed = False
+    if THINK_CLOSE in content and not (msg.get("reasoning_content") or msg.get("reasoning")):
+        head, tail = content.split(THINK_CLOSE, 1)
+        msg["reasoning_content"] = head.replace("<think>", "").strip()
+        content = tail.lstrip()
+        changed = True
+    if not msg.get("tool_calls") and "<tool_call>" in content:
+        props = _tool_props(tools)
+        calls = []
+        for block in _TC_RE.findall(content):
+            parsed = _parse_tool_call_block(block, props)
+            if parsed:
+                calls.append({
+                    "id": "call_" + uuid.uuid4().hex[:24],
+                    "type": "function",
+                    "function": {"name": parsed[0], "arguments": parsed[1]},
+                })
+        if calls:
+            content = _TC_RE.sub("", content).strip()
+            msg["tool_calls"] = calls
+            changed = True
+    if changed:
+        msg["content"] = content if (content or not msg.get("tool_calls")) else None
+    return changed
+
+def postprocess_completion(data, tools=None):
+    choices = data.get("choices") if isinstance(data, dict) else None
+    if not choices:
+        return data
+    for ch in choices:
+        msg = ch.get("message")
+        if isinstance(msg, dict) and normalize_message(msg, tools) and msg.get("tool_calls"):
+            ch["finish_reason"] = "tool_calls"
+    return data
+
+def completion_to_sse(data):
+    # Re-emit a buffered chat.completion as OpenAI SSE chunks (list of strings).
+    base = {"id": data.get("id", "chatcmpl-" + uuid.uuid4().hex[:12]), "object": "chat.completion.chunk",
+            "created": data.get("created", int(time.time())), "model": data.get("model", SERVE_MODEL_ID)}
+    def chunk(delta, finish=None):
+        return "data: " + json.dumps({**base, "choices": [{"index": 0, "delta": delta, "finish_reason": finish}]}, ensure_ascii=False) + "\n\n"
+    out = []
+    choice = (data.get("choices") or [{}])[0]
+    msg = choice.get("message") or {}
+    out.append(chunk({"role": "assistant"}))
+    if msg.get("reasoning_content"):
+        out.append(chunk({"reasoning_content": msg["reasoning_content"]}))
+    if msg.get("content"):
+        out.append(chunk({"content": msg["content"]}))
+    for i, tc in enumerate(msg.get("tool_calls") or []):
+        out.append(chunk({"tool_calls": [{"index": i, "id": tc.get("id"), "type": "function", "function": tc.get("function")}]}))
+    out.append(chunk({}, choice.get("finish_reason") or "stop"))
+    out.append("data: [DONE]\n\n")
+    return out
+"""
+
 print("7. Writing unified FastAPI OpenAI translation & auth proxy...")
 proxy_code = f'''
 import os, json, time, asyncio, httpx
@@ -408,7 +524,8 @@ ACTIVE_BACKEND = "{ACTIVE_BACKEND}"
 API_KEY = "{API_KEY}"
 SERVE_MODEL_ID = "{SERVE_MODEL_ID}"
 CONTEXT_WINDOW = {CONTEXT_WINDOW}
-
+BUFFER_TOOL_RESPONSES = {BUFFER_TOOL_RESPONSES}
+{TOOL_PARSER_CODE}
 app = FastAPI(title="OpenColab Unified Multi-Backend Proxy")
 client = httpx.AsyncClient(timeout=600.0)
 
@@ -603,17 +720,58 @@ async def proxy_all(path: str, request: Request):
     body_bytes = await request.body()
     is_stream = False
     has_tools = False
+    client_stream = False
+    tools = None
     if request.method == "POST" and path == "v1/chat/completions":
         try:
             payload = json.loads(body_bytes.decode("utf-8"))
-            has_tools = bool(payload.get("tools"))
+            tools = payload.get("tools")
+            has_tools = bool(tools)
             payload = sanitize_chat_payload(payload)
+            client_stream = bool(payload.get("stream", False))
+            # Tool requests on backends that return tool calls as raw text are buffered so the
+            # reply can be parsed into structured tool_calls, then re-streamed to the client.
+            if has_tools and BUFFER_TOOL_RESPONSES:
+                payload["stream"] = False
+                payload.pop("stream_options", None)
             is_stream = bool(payload.get("stream", False))
             body_bytes = json.dumps(payload).encode("utf-8")
         except Exception:
             pass
     headers = {{"Content-Type": "application/json", "Accept": request.headers.get("accept", "*/*")}}
     req = client.build_request(request.method, target, headers=headers, content=body_bytes)
+    if has_tools and BUFFER_TOOL_RESPONSES and client_stream:
+        async def buffered_sse():
+            task = asyncio.create_task(client.send(req, stream=False))
+            while True:
+                done, _ = await asyncio.wait({{task}}, timeout=2.0)
+                if done:
+                    break
+                keepalive = {{"id": "chatcmpl-keepalive", "object": "chat.completion.chunk", "created": int(time.time()),
+                              "model": SERVE_MODEL_ID, "choices": [{{"index": 0, "delta": {{}}, "finish_reason": None}}]}}
+                yield f"data: {{json.dumps(keepalive)}}\\n\\n".encode("utf-8")
+            try:
+                up = task.result()
+                data = json.loads(up.content.decode("utf-8"))
+                if up.status_code >= 400 or "choices" not in data:
+                    yield f"data: {{json.dumps(data)}}\\n\\n".encode("utf-8")
+                    yield b"data: [DONE]\\n\\n"
+                    return
+                data = postprocess_completion(data, tools)
+                for part in completion_to_sse(data):
+                    yield part.encode("utf-8")
+            except Exception as exc:
+                yield f"data: {{json.dumps({{'error': {{'message': str(exc)}}}})}}\\n\\n".encode("utf-8")
+                yield b"data: [DONE]\\n\\n"
+        return StreamingResponse(
+            buffered_sse(),
+            headers={{
+                "Content-Type": "text/event-stream; charset=utf-8",
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no"
+            }}
+        )
     upstream = await client.send(req, stream=is_stream)
     if is_stream:
         return StreamingResponse(
@@ -631,6 +789,8 @@ async def proxy_all(path: str, request: Request):
         await upstream.aclose()
         try:
             data = json.loads(resp_body.decode("utf-8"))
+            if BUFFER_TOOL_RESPONSES and path == "v1/chat/completions":
+                data = postprocess_completion(data, tools)
             if "choices" in data and len(data["choices"]) > 0:
                 msg = data["choices"][0].get("message", {{}})
                 reasoning = msg.get("reasoning") or msg.get("reasoning_content")
